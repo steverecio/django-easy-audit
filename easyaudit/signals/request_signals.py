@@ -6,7 +6,6 @@ from django.utils import timezone
 from django.conf import settings
 from django.utils.module_loading import import_string
 
-from easyaudit.middleware.easyaudit import get_current_user
 from easyaudit.settings import REMOTE_ADDR_HEADER, UNREGISTERED_URLS, REGISTERED_URLS, WATCH_REQUEST_EVENTS, \
     LOGGING_BACKEND
 
@@ -38,10 +37,9 @@ def request_started_handler(sender, environ, **kwargs):
     if not should_log_url(environ['PATH_INFO']):
         return
 
-    # try and get the user from the request
-    user = get_current_user()
     # get the user from cookies
-    if not user and environ.get('HTTP_COOKIE'):
+    user = None
+    if environ.get('HTTP_COOKIE'):
         cookie = SimpleCookie() # python3 compatibility
         cookie.load(environ['HTTP_COOKIE'])
 
