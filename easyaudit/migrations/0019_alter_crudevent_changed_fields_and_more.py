@@ -34,9 +34,15 @@ def _online_set_not_null(table, column):
             sql=f"UPDATE {table} SET {column} = '' WHERE {column} IS NULL;",
             reverse_sql=migrations.RunSQL.noop,
         ),
-        # 2. Add the NOT NULL guarantee as an unvalidated CHECK (instant, brief lock).
+        # 2. Add the NOT NULL guarantee as an unvalidated CHECK (instant once the lock
+        #    is held). lock_timeout makes acquisition FAIL FAST (deploy aborts cleanly)
+        #    rather than hang if some long-lived transaction is camped on the table.
         migrations.RunSQL(
-            sql=f'ALTER TABLE {table} ADD CONSTRAINT "{constraint}" CHECK ({column} IS NOT NULL) NOT VALID;',
+            sql=(
+                f"SET lock_timeout = '5s'; "
+                f'ALTER TABLE {table} ADD CONSTRAINT "{constraint}" CHECK ({column} IS NOT NULL) NOT VALID; '
+                f"RESET lock_timeout;"
+            ),
             reverse_sql=migrations.RunSQL.noop,
         ),
         # 3. Validate it -- scans under SHARE UPDATE EXCLUSIVE, does NOT block reads/writes.
@@ -44,9 +50,14 @@ def _online_set_not_null(table, column):
             sql=f'ALTER TABLE {table} VALIDATE CONSTRAINT "{constraint}";',
             reverse_sql=migrations.RunSQL.noop,
         ),
-        # 4. Set NOT NULL -- PG12+ reuses the validated constraint, so this is fast (no re-scan).
+        # 4. Set NOT NULL -- PG12+ reuses the validated constraint, so this is fast (no
+        #    re-scan). Again guarded by lock_timeout so it can never hang on the lock.
         migrations.RunSQL(
-            sql=f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL;",
+            sql=(
+                f"SET lock_timeout = '5s'; "
+                f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL; "
+                f"RESET lock_timeout;"
+            ),
             reverse_sql=f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL;",
         ),
         # 5. Drop the now-redundant CHECK.
