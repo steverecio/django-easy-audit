@@ -1,19 +1,9 @@
-# NOTE (pipefile fork): easyaudit_requestevent takes an insert on nearly every
-# request, so every index on it is maintained on every write. `method` holds a
-# handful of distinct values that no hot-path query filters on, so its index and
-# its varchar_pattern_ops (*_like) twin are dropped. url and remote_ip keep both of
-# theirs: `__startswith` compiles to an unwrapped `col::text LIKE 'prefix%'`, which
-# only the *_like index serves under a non-C collation, and remote_ip stores an
-# X-Forwarded-For chain that is searched by prefix.
+# NOTE (pipefile fork): drops method's index and its *_like twin; nothing hot filters
+# on method. url and remote_ip keep their *_like indexes for __startswith lookups.
 #
-# A plain DROP INDEX takes an ACCESS EXCLUSIVE lock, which queues every insert on
-# this table behind any open reader. On PostgreSQL the drops are therefore raw
-# CONCURRENTLY SQL: non-atomic, one statement per operation, with lock_timeout set
-# and reset in operations of their own so the deploy fails fast rather than waits.
-# A timed-out drop can leave its index INVALID; re-running migrate completes it
-# (IF EXISTS). A reverse drops any leftover index of the same name before
-# rebuilding it, so a timed-out reverse is also completed by a re-run. Every other
-# backend drops the index through the AlterField itself.
+# On PostgreSQL the drops run CONCURRENTLY behind lock_timeout, so the deploy fails
+# fast instead of blocking inserts; re-run migrate after a timeout. Other backends
+# drop the index through the AlterField.
 
 from django.db import migrations, models
 
