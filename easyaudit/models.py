@@ -116,7 +116,7 @@ class LoginEvent(models.Model):
 class RequestEvent(models.Model):
     url = models.CharField(null=False, db_index=True, max_length=254, verbose_name=_("URL"))
     method = models.CharField(
-        max_length=20, null=False, db_index=True, verbose_name=_("Method")
+        max_length=20, null=False, verbose_name=_("Method")
     )
     query_string = models.TextField(default="", verbose_name=_("Query string"))
     user = models.ForeignKey(
