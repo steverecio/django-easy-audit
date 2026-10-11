@@ -3,9 +3,12 @@ import contextlib
 from typing import Callable
 
 from asgiref.local import Local
-from asgiref.sync import iscoroutinefunction, markcoroutinefunction
+from asgiref.sync import iscoroutinefunction, markcoroutinefunction, sync_to_async
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
+
+from easyaudit.request_auth import adapters_configured
+from easyaudit.utils import should_propagate_exceptions
 
 
 class MockRequest:
@@ -42,6 +45,27 @@ def clear_request():
         del _thread_locals.request
 
 
+def logs_requests_after_response():
+    """Whether the middleware, not the `request_started` signal, logs requests."""
+    if not adapters_configured():
+        return False
+
+    # Imported here: easyaudit.settings needs the app registry to be ready.
+    from easyaudit.settings import WATCH_REQUEST_EVENTS
+
+    return WATCH_REQUEST_EVENTS
+
+
+def log_request(request):
+    from easyaudit.signals.request_signals import log_request_after_response
+
+    try:
+        log_request_after_response(request)
+    except Exception:
+        if should_propagate_exceptions():
+            raise
+
+
 class EasyAuditMiddleware:
     async_capable = True
     sync_capable = True
@@ -61,6 +85,9 @@ class EasyAuditMiddleware:
         with contextlib.suppress(AttributeError):
             del _thread_locals.request
 
+        if logs_requests_after_response():
+            log_request(request)
+
         return response
 
     async def __acall__(self, request: HttpRequest) -> HttpResponse:
@@ -70,5 +97,8 @@ class EasyAuditMiddleware:
 
         with contextlib.suppress(AttributeError):
             del _thread_locals.request
+
+        if logs_requests_after_response():
+            await sync_to_async(log_request)(request)
 
         return response
