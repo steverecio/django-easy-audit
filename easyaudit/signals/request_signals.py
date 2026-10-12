@@ -7,7 +7,7 @@ from django.core.signals import request_started
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
-from easyaudit.request_auth import adapters_require_response, get_request_user
+from easyaudit.request_auth import adapters_require_response, get_request_auth
 from easyaudit.settings import (
     LOGGING_BACKEND,
     REGISTERED_URLS,
@@ -61,13 +61,14 @@ def get_request_details(environ=None, scope=None):
 
 
 def log_request(details, request):
-    user = get_request_user(request)
+    user, auth_method = get_request_auth(request)
 
     # may want to wrap this in an atomic transaction later
     audit_logger.request(
         {
             **details,
             "user_id": getattr(user, "id", None),
+            "auth_method": auth_method,
             "datetime": timezone.now(),
         }
     )
