@@ -7,7 +7,7 @@ from asgiref.sync import iscoroutinefunction, markcoroutinefunction, sync_to_asy
 from django.http.request import HttpRequest
 from django.http.response import HttpResponse
 
-from easyaudit.request_auth import adapters_configured
+from easyaudit.request_auth import adapters_require_response
 from easyaudit.utils import should_propagate_exceptions
 
 
@@ -45,19 +45,14 @@ def clear_request():
         del _thread_locals.request
 
 
-def logs_requests_after_response():
-    """Whether the middleware, not the `request_started` signal, logs requests."""
-    if not adapters_configured():
-        return False
-
+def log_request(request):
+    """Log the request, for auth adapters that need the view to have run."""
     # Imported here: easyaudit.settings needs the app registry to be ready.
     from easyaudit.settings import WATCH_REQUEST_EVENTS
-
-    return WATCH_REQUEST_EVENTS
-
-
-def log_request(request):
     from easyaudit.signals.request_signals import log_request_after_response
+
+    if not WATCH_REQUEST_EVENTS:
+        return
 
     try:
         log_request_after_response(request)
@@ -85,7 +80,7 @@ class EasyAuditMiddleware:
         with contextlib.suppress(AttributeError):
             del _thread_locals.request
 
-        if logs_requests_after_response():
+        if adapters_require_response():
             log_request(request)
 
         return response
@@ -98,7 +93,7 @@ class EasyAuditMiddleware:
         with contextlib.suppress(AttributeError):
             del _thread_locals.request
 
-        if logs_requests_after_response():
+        if adapters_require_response():
             await sync_to_async(log_request)(request)
 
         return response
