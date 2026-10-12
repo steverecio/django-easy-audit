@@ -52,6 +52,10 @@ class BaseAuthAdapter:
     # the request is logged after the response instead of as it starts.
     requires_response = True
 
+    # How a request this adapter names a user for authenticated. Recorded on the
+    # request event as `auth_method`; any short label works.
+    auth_method = None
+
     def get_user(self, request):
         """Return the user behind the request, or None."""
         raise NotImplementedError(
@@ -68,6 +72,7 @@ class SessionAuthAdapter(BaseAuthAdapter):
     """
 
     requires_response = False
+    auth_method = "session"
 
     def get_user(self, request):
         session_key = request.COOKIES.get(settings.SESSION_COOKIE_NAME)
@@ -87,6 +92,7 @@ class RequestAuthAdapter(BaseAuthAdapter):
     """
 
     requires_response = True
+    auth_method = "token"
 
     def get_user(self, request):
         if getattr(request, "auth", None) is None:
@@ -129,10 +135,13 @@ def adapters_require_response():
     return any(getattr(adapter, "requires_response", True) for adapter in get_adapters())
 
 
-def get_request_user(request):
-    """Return the user from the first configured adapter that names one, or None."""
+def get_request_auth(request):
+    """Return the request's user and how it authenticated, or ``(None, None)``.
+
+    Both come from the first configured adapter that names a user.
+    """
     for adapter in get_adapters():
         user = adapter.get_user(request)
         if user is not None:
-            return user
-    return None
+            return user, getattr(adapter, "auth_method", None)
+    return None, None
