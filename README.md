@@ -96,6 +96,13 @@ Below are some of the settings you may want to use. These should be defined in y
     `ImproperlyConfigured` on the first request. List items can be classes or dotted
     paths.
 
+  Each adapter also has an `auth_method` label, recorded on the request event when
+  that adapter names the user: `"session"` for `SessionAuthAdapter` and `"token"` for
+  `RequestAuthAdapter`. A request no adapter names a user for has no `auth_method`.
+  Set the attribute on your own adapter to record any other short label, such as
+  `"jwt"` or `"sso"`. The request event admin shows the label and can filter on it,
+  which separates API calls from browser traffic to the same URLs.
+
   Each adapter has a `requires_response` attribute saying whether it needs the view to
   have run. It is `True` on `BaseAuthAdapter` and `RequestAuthAdapter`, and `False` on
   `SessionAuthAdapter`; set it to `False` on an adapter that only reads the incoming

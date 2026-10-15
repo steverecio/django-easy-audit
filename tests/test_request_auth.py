@@ -9,7 +9,7 @@ from easyaudit.request_auth import (
     BaseAuthAdapter,
     RequestAuthAdapter,
     SessionAuthAdapter,
-    get_request_user,
+    get_request_auth,
 )
 
 SESSION_ADAPTER = "easyaudit.request_auth.SessionAuthAdapter"
@@ -37,13 +37,22 @@ class TestDefaultRequestAuth:
         client.force_login(user)
         client.get(reverse("test_app:index"))
 
-        assert RequestEvent.objects.get().user == user
+        event = RequestEvent.objects.get()
+        assert event.user == user
+        assert event.auth_method == "session"
 
     def test_token_user_is_not_recorded(self, user, client, username):
         resp = client.get(reverse("test_app:token-auth"), **token_header(username))
         assert resp.status_code == 200
 
-        assert RequestEvent.objects.get().user is None
+        event = RequestEvent.objects.get()
+        assert event.user is None
+        assert event.auth_method is None
+
+    def test_anonymous_request_has_no_auth_method(self, client):
+        client.get(reverse("test_app:index"))
+
+        assert RequestEvent.objects.get().auth_method is None
 
     def test_event_is_written_before_the_view_runs(self, client):
         resp = client.get(reverse("test_app:count-request-events"))
@@ -58,24 +67,32 @@ class TestConfiguredRequestAuth:
         resp = client.get(reverse("test_app:token-auth"), **token_header(username))
         assert resp.status_code == 200
 
-        assert RequestEvent.objects.get().user == user
+        event = RequestEvent.objects.get()
+        assert event.user == user
+        assert event.auth_method == "token"
 
     def test_session_user_is_recorded(self, adapters, user, client):
         client.force_login(user)
         client.get(reverse("test_app:index"))
 
-        assert RequestEvent.objects.get().user == user
+        event = RequestEvent.objects.get()
+        assert event.user == user
+        assert event.auth_method == "session"
 
     def test_anonymous_request_has_no_user(self, adapters, client):
         client.get(reverse("test_app:index"))
 
-        assert RequestEvent.objects.get().user is None
+        event = RequestEvent.objects.get()
+        assert event.user is None
+        assert event.auth_method is None
 
     def test_rejected_token_has_no_user(self, adapters, user, client):
         resp = client.get(reverse("test_app:token-auth"), **token_header("nobody"))
         assert resp.status_code == 401
 
-        assert RequestEvent.objects.get().user is None
+        event = RequestEvent.objects.get()
+        assert event.user is None
+        assert event.auth_method is None
 
     def test_event_is_written_once_after_the_view_runs(self, adapters, client):
         resp = client.get(reverse("test_app:count-request-events"))
@@ -172,6 +189,7 @@ class TestConfiguredRequestAuthASGI:
 
         event = await RequestEvent.objects.select_related("user").aget()
         assert event.user == async_user
+        assert event.auth_method == "token"
 
     async def test_anonymous_request_has_no_user(self, adapters, async_client):
         await async_client.get(reverse("test_app:index"))
@@ -235,7 +253,7 @@ class TestAdapters:
 
         settings.DJANGO_EASY_AUDIT_REQUEST_AUTH_ADAPTERS = [First, Second, Third]
 
-        assert get_request_user(RequestFactory().get("/")) == user
+        assert get_request_auth(RequestFactory().get("/")) == (user, None)
 
     def test_base_adapter_defaults_to_requiring_the_response(self):
         class TokenAdapter(BaseAuthAdapter):
@@ -276,3 +294,46 @@ class TestAdapters:
 
         with pytest.raises(ImproperlyConfigured):
             client.get(reverse("test_app:index"))
+
+    def test_adapter_names_its_own_auth_method(self, settings, user, client):
+        class SsoAdapter(BaseAuthAdapter):
+            requires_response = False
+            auth_method = "sso"
+
+            def get_user(self, request):
+                return user
+
+        settings.DJANGO_EASY_AUDIT_REQUEST_AUTH_ADAPTERS = [SsoAdapter]
+        client.get(reverse("test_app:index"))
+
+        assert RequestEvent.objects.get().auth_method == "sso"
+
+    def test_adapter_without_an_auth_method_records_none(self, settings, user, client):
+        class Unlabelled:
+            requires_response = False
+
+            def get_user(self, request):
+                return user
+
+        settings.DJANGO_EASY_AUDIT_REQUEST_AUTH_ADAPTERS = [Unlabelled]
+        client.get(reverse("test_app:index"))
+
+        event = RequestEvent.objects.get()
+        assert event.user == user
+        assert event.auth_method is None
+
+
+@pytest.mark.django_db
+class TestAuthMethodAdmin:
+    def test_changelist_filters_by_auth_method(self, admin_client, user):
+        RequestEvent.objects.create(url="/api/a/", method="GET", auth_method="token")
+        RequestEvent.objects.create(url="/web/b/", method="GET", auth_method="session")
+        RequestEvent.objects.create(url="/anon/c/", method="GET")
+
+        resp = admin_client.get(
+            reverse("admin:easyaudit_requestevent_changelist"),
+            {"auth_method": "token"},
+        )
+
+        assert resp.status_code == 200
+        assert [e.url for e in resp.context["cl"].result_list] == ["/api/a/"]
