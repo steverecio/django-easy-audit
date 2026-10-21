@@ -78,6 +78,37 @@ def get_m2m_field_name(model, instance):
     return None
 
 
+def fit_to_field(model, field_name, value):
+    """Cut a string to the max_length of a model's field, keeping its start.
+
+    Several logged values come from the client (the path, the method, a failed
+    login's username). One longer than its column fails the insert, and the event
+    is lost; a cut value keeps the event.
+    """
+    max_length = model._meta.get_field(field_name).max_length
+    if not isinstance(value, str) or max_length is None:
+        return value
+    return value[:max_length]
+
+
+def fit_forwarded_chain(model, field_name, value):
+    """Fit an address, or a comma-separated chain of them, into a model's field.
+
+    Proxies append to X-Forwarded-For, so the entries a deployment can trust are at
+    the right end and the left end is whatever the client sent. Whole entries are
+    dropped from the left until the chain fits; a single entry still too long keeps
+    its last max_length characters.
+    """
+    max_length = model._meta.get_field(field_name).max_length
+    if not isinstance(value, str) or max_length is None or len(value) <= max_length:
+        return value
+
+    entries = [entry.strip() for entry in value.split(",")]
+    while len(entries) > 1 and len(", ".join(entries)) > max_length:
+        entries.pop(0)
+    return ", ".join(entries)[-max_length:]
+
+
 def should_propagate_exceptions():
     """Whether Django Easy Audit should propagate signal handler exceptions.
 

@@ -7,6 +7,7 @@ from django.core.signals import request_started
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
+from easyaudit.models import RequestEvent
 from easyaudit.request_auth import adapters_require_response, get_request_auth
 from easyaudit.settings import (
     LOGGING_BACKEND,
@@ -15,6 +16,7 @@ from easyaudit.settings import (
     UNREGISTERED_URLS,
     WATCH_REQUEST_EVENTS,
 )
+from easyaudit.utils import fit_forwarded_chain, fit_to_field
 
 audit_logger = import_string(LOGGING_BACKEND)()
 
@@ -67,6 +69,15 @@ def log_request(details, request):
     audit_logger.request(
         {
             **details,
+            # Fitted here, not in get_request_details: the URL filters match the
+            # whole path.
+            "url": fit_to_field(RequestEvent, "url", details["url"]),
+            "method": fit_to_field(RequestEvent, "method", details["method"]),
+            # A configured header the request did not send is None; the column is
+            # NOT NULL.
+            "remote_ip": fit_forwarded_chain(
+                RequestEvent, "remote_ip", details["remote_ip"] or ""
+            ),
             "user_id": getattr(user, "id", None),
             "auth_method": auth_method,
             "datetime": timezone.now(),
