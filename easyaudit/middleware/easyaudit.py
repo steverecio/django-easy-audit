@@ -1,5 +1,6 @@
 # makes easy-audit thread-safe
 import contextlib
+import logging
 from typing import Callable
 
 from asgiref.local import Local
@@ -9,6 +10,8 @@ from django.http.response import HttpResponse
 
 from easyaudit.request_auth import adapters_require_response
 from easyaudit.utils import should_propagate_exceptions
+
+logger = logging.getLogger(__name__)
 
 
 class MockRequest:
@@ -54,9 +57,12 @@ def log_request(request):
     if not WATCH_REQUEST_EVENTS:
         return
 
+    # The view has already run, so a lost row would hide a request that did its
+    # work. Log the failure where it will be seen.
     try:
         log_request_after_response(request)
     except Exception:
+        logger.exception("Django Easy Audit could not log a request.")
         if should_propagate_exceptions():
             raise
 
