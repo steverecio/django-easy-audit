@@ -28,14 +28,14 @@ SHORT_CHAIN = "203.0.113.5, 10.0.1.23"
 
 
 @pytest.fixture
-def forwarded_for(monkeypatch):
+def _forwarded_for(monkeypatch):
     # Read once at import, so settings cannot reach it.
     for module in (request_signals, auth_signals):
         monkeypatch.setattr(module, "REMOTE_ADDR_HEADER", "HTTP_X_FORWARDED_FOR")
 
 
 @pytest.fixture
-def after_response(settings):
+def _after_response(settings):
     """Log the request after the view, as a deployment with a token adapter does."""
     settings.DJANGO_EASY_AUDIT_REQUEST_AUTH_ADAPTERS = [
         "easyaudit.request_auth.RequestAuthAdapter",
@@ -64,12 +64,12 @@ class TestFitForwardedChain:
 
 
 @pytest.mark.django_db
-@pytest.mark.usefixtures("forwarded_for")
+@pytest.mark.usefixtures("_forwarded_for")
 class TestRequestEventOverflow:
     @pytest.fixture(params=["before_view", "after_view"])
     def timing(self, request):
         if request.param == "after_view":
-            request.getfixturevalue("after_response")
+            request.getfixturevalue("_after_response")
         return request.param
 
     def test_long_forwarded_chain_is_fitted(self, timing, client):
@@ -107,7 +107,7 @@ class TestRequestEventOverflow:
 
 
 @pytest.mark.django_db
-@pytest.mark.usefixtures("after_response")
+@pytest.mark.usefixtures("_after_response")
 class TestFailedRequestWrite:
     def test_a_failed_write_is_logged(self, client, caplog, monkeypatch):
         def fail(request_info):
@@ -123,7 +123,7 @@ class TestFailedRequestWrite:
 
 
 @pytest.mark.django_db
-@pytest.mark.usefixtures("forwarded_for")
+@pytest.mark.usefixtures("_forwarded_for")
 class TestLoginEventOverflow:
     @pytest.fixture
     def request_with_long_chain(self):
